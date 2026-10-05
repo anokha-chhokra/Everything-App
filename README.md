@@ -1,0 +1,93 @@
+# Day Hub
+
+One page for your day: **tasks, daily habits with points and streaks, a journal, an expense manager, and a YouTube music player** that plays without leaving the app. Cream-paper, hand-written look. Runs on your own computer; your data stays in one file.
+
+## Quick start
+
+You need **Node 22.13 or newer**. There is nothing to install (no `npm install`).
+
+```
+node server.js        # or: npm start
+```
+
+Open http://127.0.0.1:3000. The first time, a four-step setup asks for your name, your currency and monthly budget, a few starter habits, and an optional YouTube link. You can skip it.
+
+### On your phone
+
+Run it with `HOST=0.0.0.0 node server.js`, then open `http://<your-computer-ip>:3000` on the same Wi-Fi. Use "Add to Home Screen" in the browser to get an app icon. **There is no login**, so only do this on a network you trust.
+
+## What it does
+
+- **Home tiles**: "Needs you now" (see *The rules* below), today's tasks, today's habits, the journal (today's prompt and a one-tap mood check-in), this month's spending against your budget, and the music player. On a wide screen the tiles sit in two columns.
+- **Tasks**: due dates, star for priority, grouped as Overdue / Today / Upcoming / No date, undo after delete.
+- **Habits** (from the commit() app): three kinds. *Daily check* (done or not), *Goal* (count up to a target, such as 8 glasses or 8,000 steps) and *Limit* (stay under a number, such as 3 coffees). Choose which weekdays each repeats on and an optional reminder time. Points: a check earns its points; a goal earns points in proportion; a limit earns its points while you are under it and **costs** them when you go over. Deleting a habit hides it but keeps your points and streak.
+- **Streaks and badges**: a day counts for your streak when you make progress on a habit or write a journal entry (the first entry of a day is worth 10 points). 13 badges, from "First step" to "30-day streak", "10,000 words", "Night owl", "Early bird" and "Clean build" (finish every habit in a day with 3 or more habits, at least two of them real check-ins or goals, not just untouched limits). Each badge records the date you earned it.
+- **Journal with a daily timeline**: the Day view shows one day top to bottom, in time order. Journal entries (you can write several a day), habits you ticked, spending and finished tasks all land on it with the time they happened. Habits with a reminder time show as dashed "planned" rows at that time and can be ticked right there. Limits and goals sit above it as a small tile, and untimed daily habits under "Anytime". Step back or forward a day, add an entry or expense for a past day, or tap a day in the Calendar tab to open it. The Entries tab is the month as a plain list. Free write or one of five rotating prompts, a 5-point mood, tags and word counts; a mood-only check-in is a valid entry.
+- **Times**: new activity records the clock time. Things logged before this version have no time, so they show at the bottom of their day with a "·" instead of a time.
+- **Expenses from the journal**: while you type an entry, Day Hub spots spending ("spent ₹250 on lunch", "paid 400 for fuel", "bought groceries for 540") and offers each one as a ticked box. Tick what you want and it is saved as a linked expense in the entry's day. It only suggests; nothing is added without your tick.
+- **Spending**: amounts in ₹ by default (any currency code), 7 categories, month-by-month view, category bars, CSV export.
+- **Music**: paste a YouTube video or playlist link into the box on Home (it plays the moment you paste). Saved links are listed. Music keeps playing while you switch tabs inside the app.
+- **Reminders**: a daily journal reminder and a time per habit. They show inside Day Hub and, if you allow it in Settings, as system notifications. A web page cannot wake itself, so they only fire while Day Hub is open in a tab or window.
+- **Backup**: Settings has a full JSON backup, an all-expenses CSV and a Markdown export of your stats, habits, badges and journal.
+
+## The rules (how Day Hub decides things)
+
+- **Streak**: counts consecutive days with real activity. Today never breaks it while it is still going. A day on which none of your habits is scheduled (say a weekday-only habit on a weekend) is a rest day: it neither adds to the streak nor breaks it. Going *over* a limit is not activity.
+- **No time travel**: you cannot log a habit or write an entry for a day that has not happened yet.
+- **Needs you now** (most urgent first, at most four): tasks that are overdue (longer overdue ranks higher) or due today, with starred ones ahead; habits whose reminder time has passed without being done; a nudge to write the day's entry after your journal reminder time (8 pm if you have not set one); and a warning once you pass the month's budget. Time-based items need the page's clock, so they refresh when you return to the tab.
+- **Spending pace**: with a budget set, Home and Spending show roughly how much you can spend per day for the rest of the month, and from day 5 a warning if the month is on course to end over budget.
+- **Timeline times**: something done now gets the current time. Something added to a past day gets no time unless you type one (the Day and Time fields in the entry sheet, Time in the expense sheet), instead of a made-up one. Within the same minute the order is habits, tasks, the journal entry, then its spending. A planned habit whose time has passed shows as "not done"; the timeline groups rows under Morning, Afternoon, Evening, Night and Late night.
+- **Quick note on Home**: the Journal tile has a text box. Type, optionally pick a face for the mood, tick any spending it spotted and press Add to journal (or Ctrl/Cmd+Enter). It is saved with the current time. With the box empty, a face is still a one-tap mood check-in. "Full editor" opens the whole entry sheet (prompts, tags, day and time) carrying what you have typed. A half-typed note survives the dashboard refreshing.
+- **Quick mood**: tapping a mood face within 30 minutes of the last quick tap corrects that check-in instead of adding another.
+- **Expense detection**: ignores income and budgets ("earned ₹5000", "got paid", "refund", "budget ₹30000"); understands `k`, `lakh` and `crore`; reads "yesterday", "N days ago" and "on Friday" relative to the entry's day; and learns categories from your own past expenses (a word you have filed under the same category twice overrides the built-in word list). When you edit an entry, spending that is already saved with it is not suggested again, and you can add new spending found in the edited text. Editing an entry's day or time moves its linked spending too.
+
+## Configuration (environment variables, or a `.env` file)
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `PORT` | `3000` | Port to listen on |
+| `HOST` | `127.0.0.1` | Use `0.0.0.0` to allow other devices |
+| `DB_PATH` | `data/dayhub.db` | SQLite file |
+
+Copy `.env.example` to `.env` to use a file.
+
+## Things to know
+
+- **Fonts** (Caveat, Patrick Hand) load from Google Fonts, so you need internet for the hand-written look. Offline it falls back to a plain font and still works.
+- Some **YouTube** videos forbid embedding; try another link.
+- Audio from embedded players may stop when a phone screen locks. That is a browser limit.
+- No accounts and no login. The default is local-only (`127.0.0.1`). The server also checks the Host and Origin headers, sets a strict Content-Security-Policy, and limits request size.
+
+## Switching databases
+
+Storage sits behind a small interface in `src/store/`. `DB_CLIENT` (default `sqlite`) picks the implementation in `src/store/index.js`. To use PostgreSQL or MySQL, write a module that exports a factory returning the same methods as `src/store/sqlite.js` and register it in `index.js`:
+
+```
+getSettings, setSettings,
+listTasks, getTask, createTask, updateTask, deleteTask, dashboardTasks,
+createExpense, deleteExpense, listExpenses, summarizeExpenses,
+getHabit, listHabits, createHabit, updateHabit, setHabitLog, listLogs,
+getEntry, listEntries, createEntry, updateEntry, deleteEntry,
+listBadges, unlockBadges,
+listMusic, getMusic, addMusic, deleteMusic,
+exportAll, close
+```
+
+The rest of the app only talks to these methods. Money is stored as integer minor units (paise/cents). Only SQLite is implemented today.
+
+## Tests
+
+```
+npm test
+```
+
+20 tests cover validation, YouTube link parsing, habit points and streaks, badges, expense detection, an upgrade from the first database version, security checks and every API route (using an in-memory database).
+
+## Layout
+
+```
+server.js        start-up and shutdown
+src/             router, API, store, habits and journal rules, expense detection, music link parsing
+public/          index.html, styles.css, js/ (plain ES modules, no build step)
+test/            node:test suites
+```
