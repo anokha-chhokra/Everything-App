@@ -1,10 +1,10 @@
 # Day Hub
 
-One page for your day: **tasks, daily habits with points and streaks, a journal, an expense manager, and a YouTube music player** that plays without leaving the app. Cream-paper, hand-written look. Runs on your own computer; your data stays in one file.
+One page for your day: **tasks, daily habits with points and streaks, a journal, an expense manager, and a YouTube music player** that plays without leaving the app. Cream-paper, hand-written look. Runs on your own computer (your data stays in one file) or on Vercel (your data stays in storage you own).
 
 ## Quick start
 
-You need **Node 22.13 or newer**. There is nothing to install (no `npm install`).
+You need **Node 22.13 or newer**. There is nothing to install (no `npm install`). (`package.json` asks for Node 24 because that is what the Vercel copy runs; on your computer npm may print a warning about it, which you can ignore.)
 
 ```
 node server.js        # or: npm start
@@ -14,7 +14,7 @@ Open http://127.0.0.1:3000. The first time, a four-step setup asks for your name
 
 ### On your phone
 
-Run it with `HOST=0.0.0.0 node server.js`, then open `http://<your-computer-ip>:3000` on the same Wi-Fi. Use "Add to Home Screen" in the browser to get an app icon. **There is no login**, so only do this on a network you trust.
+Run it with `HOST=0.0.0.0 node server.js`, then open `http://<your-computer-ip>:3000` on the same Wi-Fi. Use "Add to Home Screen" in the browser to get an app icon. **There is no login unless you set `DAYHUB_PASSWORD`**, so only do this on a network you trust, or set a password.
 
 ## What it does
 
@@ -41,6 +41,25 @@ Run it with `HOST=0.0.0.0 node server.js`, then open `http://<your-computer-ip>:
 - **Quick mood**: tapping a mood face within 30 minutes of the last quick tap corrects that check-in instead of adding another.
 - **Expense detection**: ignores income and budgets ("earned ₹5000", "got paid", "refund", "budget ₹30000"); understands `k`, `lakh` and `crore`; reads "yesterday", "N days ago" and "on Friday" relative to the entry's day; and learns categories from your own past expenses (a word you have filed under the same category twice overrides the built-in word list). When you edit an entry, spending that is already saved with it is not suggested again, and you can add new spending found in the edited text. Editing an entry's day or time moves its linked spending too.
 
+## Put it on Vercel
+
+Vercel has no hard disk your app can keep, so the Vercel copy keeps your data in **Upstash Redis**, a small hosted store you add from Vercel's Marketplace (the free plan is plenty). Everything else is the same code: the points, streaks, timeline and spending rules all run unchanged.
+
+1. **Deploy** this folder to a Vercel project (push to GitHub and import it, or run `vercel`). Leave the framework as "Other"; `vercel.json` already tells Vercel what to do.
+2. **Add the storage**: in the project, open **Storage**, choose **Upstash Redis** (Marketplace), create a free database and connect it to the project. Vercel adds `KV_REST_API_URL` and `KV_REST_API_TOKEN` for you.
+3. **Set a password**: Settings, Environment Variables, add `DAYHUB_PASSWORD` with a password you will remember. Anyone who knows the address can reach a site on the internet, and this holds your journal, so **a hosted Day Hub shows nothing until a password is set**.
+4. **Redeploy** (Deployments, the three dots, Redeploy). Open the site and sign in. Your sign-in lasts 30 days on that device.
+
+Already have entries on your computer? Put the two storage values in a local `.env` file (copy them from the Upstash database page in Vercel) and run `npm run upload` once. It refuses to overwrite data that is already online unless you add `--force`.
+
+How it works, so there are no surprises:
+
+- Each request loads your data into a throw-away in-memory database, runs, and saves back only if something changed. Saves are checked ("only if nobody saved since I looked"), so two devices can never silently overwrite each other; if two collide, the later one is retried on the newer data.
+- Everything is stored as one compressed snapshot. Upstash's free plan allows about 1 MB per request, so Day Hub stops saving at about 900 KB compressed and tells you. In plain text that is years of journal entries; use Backup in Settings now and then regardless.
+- If you see "Storage is not connected", step 2 is missing or the project has not been redeployed since. `/api/health` on your site shows which storage and sign-in mode it is using (no secrets).
+- Optional settings: `DAYHUB_SESSION_SECRET` (a long random string, signs the sign-in cookie), `DAYHUB_KEY_PREFIX` (to run two copies in one database), `DAYHUB_MAX_SNAPSHOT_KB` (raise it on a bigger Upstash plan).
+- Reminders still only fire while the page is open; Vercel cannot wake your phone.
+
 ## Configuration (environment variables, or a `.env` file)
 
 | Variable | Default | Meaning |
@@ -48,6 +67,10 @@ Run it with `HOST=0.0.0.0 node server.js`, then open `http://<your-computer-ip>:
 | `PORT` | `3000` | Port to listen on |
 | `HOST` | `127.0.0.1` | Use `0.0.0.0` to allow other devices |
 | `DB_PATH` | `data/dayhub.db` | SQLite file |
+| `DB_CLIENT` | `sqlite` (`upstash` on Vercel) | Where data is kept |
+| `DAYHUB_PASSWORD` | none | Ask for this password. Required on Vercel |
+| `DAYHUB_SESSION_SECRET` | derived | Extra secret for the sign-in cookie |
+| `KV_REST_API_URL`, `KV_REST_API_TOKEN` | none | Upstash Redis (Vercel adds these). `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` work too |
 
 Copy `.env.example` to `.env` to use a file.
 
@@ -56,11 +79,11 @@ Copy `.env.example` to `.env` to use a file.
 - **Fonts** (Caveat, Patrick Hand) load from Google Fonts, so you need internet for the hand-written look. Offline it falls back to a plain font and still works.
 - Some **YouTube** videos forbid embedding; try another link.
 - Audio from embedded players may stop when a phone screen locks. That is a browser limit.
-- No accounts and no login. The default is local-only (`127.0.0.1`). The server also checks the Host and Origin headers, sets a strict Content-Security-Policy, and limits request size.
+- One shared password at most (`DAYHUB_PASSWORD`), no accounts. Wrong guesses are rate-limited (best effort on Vercel, where each server instance counts for itself). On your computer the default is local-only (`127.0.0.1`) with no password. The server also checks the Host and Origin headers, sets a strict Content-Security-Policy, and limits request size.
 
 ## Switching databases
 
-Storage sits behind a small interface in `src/store/`. `DB_CLIENT` (default `sqlite`) picks the implementation in `src/store/index.js`. To use PostgreSQL or MySQL, write a module that exports a factory returning the same methods as `src/store/sqlite.js` and register it in `index.js`:
+Storage sits behind a small interface in `src/store/`. `DB_CLIENT` picks the implementation in `src/store/index.js`: `sqlite` (a file) or `upstash` (Redis over HTTPS, for Vercel; it wraps the SQLite store as a per-request snapshot, see `src/store/serverless.js`). To use PostgreSQL or MySQL, write a module that exports a factory returning the same methods as `src/store/sqlite.js` and register it in `index.js`:
 
 ```
 getSettings, setSettings,
@@ -73,7 +96,7 @@ listMusic, getMusic, addMusic, deleteMusic,
 exportAll, close
 ```
 
-The rest of the app only talks to these methods. Money is stored as integer minor units (paise/cents). Only SQLite is implemented today.
+The rest of the app only talks to these methods. Money is stored as integer minor units (paise/cents). SQLite and Upstash are implemented today. A PostgreSQL or MySQL store would not need the snapshot trick, but it does need its own copies of the rules' queries.
 
 ## Tests
 
@@ -81,13 +104,17 @@ The rest of the app only talks to these methods. Money is stored as integer mino
 npm test
 ```
 
-20 tests cover validation, YouTube link parsing, habit points and streaks, badges, expense detection, an upgrade from the first database version, security checks and every API route (using an in-memory database).
+55 tests cover validation, YouTube link parsing, habit points and streaks, badges, expense detection, an upgrade from the first database version, security checks, every API route (using an in-memory database), and the Vercel side: the Upstash backend, snapshot store, two servers writing at once, the password sign-in and the Vercel entry point. The Vercel tests run against a small fake Upstash server in `test/helpers/`, so they need no account.
 
 ## Layout
 
 ```
-server.js        start-up and shutdown
-src/             router, API, store, habits and journal rules, expense detection, music link parsing
+server.js        start-up and shutdown (your computer)
+api/index.js     the entry Vercel runs (see vercel.json)
+vercel.json      Vercel settings: static files from public/, /api to the function, security headers
+src/             router, API, store, sign-in, habits and journal rules, expense detection, music link parsing
+src/store/       sqlite.js (file), upstash.js + serverless.js (Vercel)
+scripts/         upload-data.js (copy your local data to Vercel)
 public/          index.html, styles.css, js/ (plain ES modules, no build step)
 test/            node:test suites
 ```

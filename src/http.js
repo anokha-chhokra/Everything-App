@@ -67,6 +67,12 @@ export class Router {
 }
 
 export async function readJson(req, limit = 100_000) {
+  // Some hosts (Vercel) read and parse the body before our code runs and leave it on
+  // req.body. Looking at it first also keeps us from reading a stream they own.
+  let parsed;
+  try { parsed = req.body; } catch { throw new HttpError(400, 'Body is not valid JSON'); }
+  if (parsed !== undefined && parsed !== null) return fromHost(parsed, limit);
+
   const chunks = [];
   let size = 0;
   for await (const chunk of req) {
@@ -85,6 +91,19 @@ export async function readJson(req, limit = 100_000) {
   } catch {
     throw new HttpError(400, 'Body is not valid JSON');
   }
+}
+
+// A body the host already read: an object (parsed JSON), a string or a Buffer.
+function fromHost(body, limit) {
+  let value = body;
+  if (Buffer.isBuffer(value)) value = value.toString('utf8');
+  if (typeof value === 'string') {
+    if (value.length > limit) throw new HttpError(413, 'Request body is too large');
+    if (!value.trim()) return {};
+    try { return JSON.parse(value); } catch { throw new HttpError(400, 'Body is not valid JSON'); }
+  }
+  if (JSON.stringify(value).length > limit) throw new HttpError(413, 'Request body is too large');
+  return value;
 }
 
 export function send(res, status, body, headers = {}) {

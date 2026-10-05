@@ -108,7 +108,14 @@ export async function api(path, { method = 'GET', body } = {}) {
   if (res.status === 204) return null;
   let data = null;
   try { data = await res.json(); } catch { /* not JSON */ }
-  if (!res.ok) throw new Error((data && data.error) || `Something went wrong (${res.status})`);
+  if (!res.ok) {
+    const err = new Error((data && data.error) || `Something went wrong (${res.status})`);
+    err.status = res.status;
+    err.code = data && data.code;
+    // The sign-in expired (or was never there): go back to the login screen.
+    if (res.status === 401 && err.code === 'auth' && !path.startsWith('/login')) app.onAuthLost();
+    throw err;
+  }
   return data;
 }
 
@@ -137,6 +144,9 @@ export const app = {
   go: (route) => { location.hash = `#/${route}`; },
   current: 'home',
   onChange: () => {}, // views call this after changing data so Home can refresh
+  onAuthLost: () => {}, // set by the shell: show the sign-in screen again
+  signIn: 'off',        // 'password' when this copy asks for a password
+  hosted: false,        // true when the data lives in hosted storage instead of a local file
 };
 
 // ---------- toast ----------

@@ -93,6 +93,9 @@ ALTER TABLE tasks ADD COLUMN done_time TEXT;
 
 const MIGRATIONS = [SCHEMA_V1, SCHEMA_V2, SCHEMA_V3];
 
+// Tables in the order they are restored (parents before children).
+const SNAPSHOT_TABLES = ['settings', 'tasks', 'music_links', 'habits', 'journal_entries', 'habit_logs', 'expenses', 'badges'];
+
 const DEFAULTS = {
   name: '',
   currency: 'INR',
@@ -373,6 +376,43 @@ export function createSqliteStore(dbPath) {
   }
   const deleteMusic = (id) => q('DELETE FROM music_links WHERE id = ?').run(id).changes > 0;
 
+  // ---------- snapshots (used by the serverless store) ----------
+  /** Every row of every table, as plain JSON. Table and column names are constants. */
+  function dumpRaw() {
+    const tables = {};
+    for (const t of SNAPSHOT_TABLES) tables[t] = q(`SELECT * FROM ${t} ORDER BY rowid`).all().map((r) => ({ ...r }));
+    const sequences = {};
+    for (const r of q('SELECT name, seq FROM sqlite_sequence ORDER BY name').all()) sequences[r.name] = r.seq;
+    return { format: 1, tables, sequences };
+  }
+  /** Replaces everything with a dumpRaw() result. Rows keep their ids; unknown columns are ignored. */
+  function loadRaw(dump) {
+    if (!dump || typeof dump !== 'object' || typeof dump.tables !== 'object' || dump.tables === null) {
+      throw new Error('That is not a Day Hub snapshot');
+    }
+    db.exec('PRAGMA foreign_keys = OFF');
+    try {
+      tx(() => {
+        for (const t of SNAPSHOT_TABLES) db.exec(`DELETE FROM ${t}`);
+        for (const t of SNAPSHOT_TABLES) {
+          const known = new Set(q(`PRAGMA table_info(${t})`).all().map((c) => c.name));
+          for (const row of dump.tables[t] || []) {
+            const keys = Object.keys(row).filter((k) => known.has(k));
+            if (!keys.length) continue;
+            q(`INSERT INTO ${t}(${keys.join(', ')}) VALUES(${keys.map(() => '?').join(', ')})`).run(...keys.map((k) => row[k]));
+          }
+        }
+        for (const [name, seq] of Object.entries(dump.sequences || {})) {
+          if (!SNAPSHOT_TABLES.includes(name) || !Number.isInteger(seq)) continue;
+          const upd = q('UPDATE sqlite_sequence SET seq = MAX(seq, ?) WHERE name = ?').run(seq, name);
+          if (!upd.changes) q('INSERT INTO sqlite_sequence(name, seq) VALUES(?, ?)').run(name, seq);
+        }
+      });
+    } finally {
+      db.exec('PRAGMA foreign_keys = ON');
+    }
+  }
+
   // ---------- backup ----------
   function exportAll() {
     return {
@@ -396,7 +436,7 @@ export function createSqliteStore(dbPath) {
     getEntry, listEntries, createEntry, updateEntry, deleteEntry,
     listBadges, unlockBadges,
     listMusic, getMusic, addMusic, deleteMusic,
-    exportAll,
+    exportAll, dumpRaw, loadRaw,
     close: () => db.close(),
   };
 }

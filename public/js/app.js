@@ -12,6 +12,7 @@ import { mountJournal } from './journal.js';
 import { startReminders } from './reminders.js';
 import { mountSettings } from './settings.js';
 import { runWizard } from './wizard.js';
+import { showLogin, showSetupNeeded } from './login.js';
 
 const NAV = [['home', 'Home', 'home'], ['tasks', 'Tasks', 'tasks'], ['habits', 'Habits', 'habits'], ['journal', 'Journal', 'journal'], ['spend', 'Spend', 'spend'], ['music', 'Music', 'music']];
 const TITLES = { home: 'Day Hub', tasks: 'Tasks', habits: 'Habits', journal: 'Journal', spend: 'Spending', music: 'Music', settings: 'Settings' };
@@ -76,9 +77,22 @@ app.onChange = () => {
   if (activeOther && views[activeOther]) views[activeOther].refresh();
 };
 
+// The sign-in cookie ran out while the app was open: start over at the login screen.
+let reloading = false;
+app.onAuthLost = () => {
+  if (reloading) return;
+  reloading = true;
+  location.reload();
+};
+
 async function boot() {
   let state;
   try {
+    const session = await api('/session');
+    if (session.signIn === 'missing') { showSetupNeeded($('#v-home')); return; }
+    app.signIn = session.signIn;
+    app.hosted = !!session.hosted;
+    if (session.signIn === 'password' && !session.signedIn) await showLogin($('#v-home'));
     state = await api('/state');
   } catch (e) {
     clear($('#v-home'), h('div', { class: 'page' }, h('h1', null, 'Day Hub'), h('p', { class: 'error' }, e.message),

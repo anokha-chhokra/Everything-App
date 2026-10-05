@@ -70,12 +70,20 @@ export function mountSettings(container) {
   function dataTile() {
     return h('section', { class: 'tile tilt-d' },
       h('h2', null, 'Your data'),
-      h('p', { class: 'hint' }, 'Everything lives in a file on the computer running Day Hub. Nothing is sent anywhere.'),
+      h('p', { class: 'hint' }, app.hosted
+        ? 'Your data is kept in the storage you connected to this Vercel project. Nothing is sent anywhere else. Download a backup now and then.'
+        : 'Everything lives in a file on the computer running Day Hub. Nothing is sent anywhere.'),
       h('div', { class: 'actions' },
         h('a', { class: 'btn', href: '/api/export', download: 'day-hub-backup.json' }, icon('download', 18), ' Backup (JSON)'),
         h('a', { class: 'btn', href: '/api/expenses.csv', download: 'expenses-all.csv' }, icon('download', 18), ' All expenses (CSV)'),
         h('a', { class: 'btn', href: `/api/export.md?today=${ymd()}`, download: 'day-hub-journal.md' }, icon('download', 18), ' Journal (Markdown)'),
-        h('button', { class: 'btn', type: 'button', onClick: () => runWizard({ onDone: async () => { await refresh(); app.onChange(); } }) }, 'Run setup again')));
+        h('button', { class: 'btn', type: 'button', onClick: () => runWizard({ onDone: async () => { await refresh(); app.onChange(); } }) }, 'Run setup again'),
+        app.signIn === 'password' && h('button', { class: 'btn', type: 'button', onClick: signOut }, 'Sign out')));
+  }
+
+  async function signOut() {
+    try { await api('/logout', { method: 'POST', body: {} }); } catch { /* signing out anyway */ }
+    location.reload();
   }
 
   return { refresh };

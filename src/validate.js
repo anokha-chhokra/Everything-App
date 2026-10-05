@@ -1,9 +1,10 @@
 // Small input-validation helpers. Everything user-supplied goes through these.
 
 export class HttpError extends Error {
-  constructor(status, message) {
+  constructor(status, message, code = null) {
     super(message);
     this.status = status;
+    this.code = code; // lets the browser tell "sign in" from other problems
   }
 }
 

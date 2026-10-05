@@ -2,13 +2,14 @@
   "name": "day-hub",
   "version": "1.0.0",
   "private": true,
-  "description": "A paper-style daily dashboard: urgent news tiles, tasks, an expense manager and an in-app music player.",
+  "description": "A paper-style personal dashboard: tasks, habits, a journal timeline, spending and a YouTube music player.",
   "type": "module",
   "engines": {
-    "node": ">=22.13"
+    "node": "24.x"
   },
   "scripts": {
     "start": "node --disable-warning=ExperimentalWarning server.js",
-    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js"
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js",
+    "upload": "node --disable-warning=ExperimentalWarning scripts/upload-data.js"
   }
 }
