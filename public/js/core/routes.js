@@ -1,7 +1,8 @@
-// Routes and request handling. createApp() returns a plain (req, res) handler,
-// so tests can run it on any port without touching the real database.
+// The app's "API". There is no server: these routes run inside the page, against the
+// data stored in this browser (see store.js). The screens call them through api() in
+// public/js/lib.js, which keeps every screen unchanged by where the data lives.
 
-import { Router, Reply, readJson, send, serveStatic } from './http.js';
+import { Router, Reply } from './router.js';
 import {
   HttpError, bad, obj, str, isoDate, month, moneyToMinor, oneOf, currency, id, int, hhmm, weekdays, tags,
   todayOf, monthRange,
@@ -12,31 +13,8 @@ import { spendPace, buildAttention } from './insights.js';
 import { KINDS, PRESETS, addDays } from './habits.js';
 import { PROMPTS, TAG_SUGGESTIONS, promptForDay, wordCount } from './prompts.js';
 import { detectExpenses, buildHints } from './detect.js';
-import { createAuth } from './auth.js';
-import { StorageConflict, StorageError } from './store/errors.js';
 
 export const CATEGORIES = ['Food', 'Transport', 'Bills', 'Shopping', 'Health', 'Fun', 'Other'];
-
-const CSP = [
-  "default-src 'self'",
-  "script-src 'self'",
-  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-  "font-src 'self' https://fonts.gstatic.com",
-  "img-src 'self' data:",
-  "connect-src 'self'",
-  'frame-src https://www.youtube-nocookie.com https://www.youtube.com',
-  "object-src 'none'",
-  "base-uri 'none'",
-  "form-action 'self'",
-  "frame-ancestors 'none'",
-].join('; ');
-
-export const SECURITY_HEADERS = {
-  'content-security-policy': CSP,
-  'x-content-type-options': 'nosniff',
-  'referrer-policy': 'strict-origin-when-cross-origin',
-  'x-frame-options': 'DENY',
-};
 
 const csvCell = (value) => {
   let s = String(value ?? '');
@@ -46,13 +24,9 @@ const csvCell = (value) => {
 
 const minorToDecimal = (n) => (n / 100).toFixed(2);
 
-export function createApp({ store, config }) {
+export function createRoutes({ store }) {
   const router = new Router();
   const commit = createCommit(store);
-  const auth = createAuth(config);
-  // Hosted storage (Vercel) hands out a fresh copy of the data per request; see store/serverless.js.
-  const scoped = typeof store.begin === 'function';
-  const loopbackOnly = ['127.0.0.1', 'localhost', '::1'].includes(config.host);
 
   function addMusicFromInput(urlInput, labelInput) {
     const parsed = parseMusicUrl(urlInput);
@@ -68,28 +42,6 @@ export function createApp({ store, config }) {
     const s = store.getSettings();
     return { current: s.currentMusicId ? store.getMusic(s.currentMusicId) : null };
   }
-
-  // ---------- health & sign-in (these never touch the stored data) ----------
-  const authMode = () => (auth.misconfigured ? 'missing' : auth.enabled ? 'password' : 'off');
-
-  router.get('/api/health', () => ({ ok: true, storage: config.dbClient, signIn: authMode() }));
-
-  router.get('/api/session', (ctx) => ({ signIn: authMode(), signedIn: auth.signedIn(ctx.req), hosted: config.dbClient !== 'sqlite' }));
-
-  router.post('/api/login', async (ctx) => {
-    if (auth.misconfigured) throw new HttpError(503, 'Set DAYHUB_PASSWORD on your host first, then redeploy.', 'setup');
-    if (!auth.enabled) return { signIn: 'off', signedIn: true };
-    const b = obj(await ctx.json());
-    const result = auth.login(ctx.req, typeof b.password === 'string' ? b.password.slice(0, 200) : '');
-    if (!result.ok) {
-      throw result.tooMany
-        ? new HttpError(429, 'Too many wrong passwords. Wait a few minutes and try again.')
-        : new HttpError(401, 'That password is not right.');
-    }
-    return new Reply(200, { signIn: 'password', signedIn: true }, { 'set-cookie': result.cookie });
-  });
-
-  router.post('/api/logout', () => new Reply(200, { signedIn: false }, { 'set-cookie': auth.logoutCookie() }));
 
   // ---------- state & settings ----------
 
@@ -420,7 +372,7 @@ export function createApp({ store, config }) {
     const b = obj(await ctx.json());
     const today = todayOf(b.today);
     const day = b.day ? isoDate(b.day, 'day') : today;
-    const text = str(b.text, 'entry', { max: 10000, optional: true }) ?? '';
+    const text = str(b.text, 'entry', { max: 10000, optional: true, multiline: true }) ?? '';
     const mood = b.mood === null || b.mood === undefined || b.mood === '' ? null : int(b.mood, 'mood', { min: 1, max: 5 });
     if (!text && !mood) throw bad('Write something or pick a mood');
     const promptId = b.promptId ? oneOf(b.promptId, PROMPTS.map((p) => p.id), 'prompt') : null;
@@ -443,7 +395,7 @@ export function createApp({ store, config }) {
     if (!current) throw new HttpError(404, 'Entry not found');
     const patch = {};
     if ('text' in b) {
-      patch.text = str(b.text, 'entry', { max: 10000, optional: true }) ?? '';
+      patch.text = str(b.text, 'entry', { max: 10000, optional: true, multiline: true }) ?? '';
       patch.wordCount = wordCount(patch.text);
     }
     if ('mood' in b) patch.mood = b.mood === null || b.mood === '' ? null : int(b.mood, 'mood', { min: 1, max: 5 });
@@ -497,94 +449,9 @@ export function createApp({ store, config }) {
   router.get('/api/export', () => new Reply(200, store.exportAll(), {
     'content-disposition': 'attachment; filename="day-hub-backup.json"',
   }));
+  // Restore: replaces everything on this device with the backup. A bad file changes nothing.
+  router.post('/api/import', async (ctx) => ({ ok: true, restored: store.importAll(obj(await ctx.json())) }));
+  router.get('/api/storage', () => store.usage());
 
-  // ---------- request pipeline ----------
-  function hostAllowed(req) {
-    if (!loopbackOnly) return true;
-    const name = String(req.headers.host || '').toLowerCase().replace(/:\d+$/, '').replace(/^\[|\]$/g, '');
-    return ['localhost', '127.0.0.1', '::1'].includes(name) || name.endsWith('.localhost');
-  }
-
-  const OPEN_ROUTES = new Set(['/api/health', '/api/session', '/api/login', '/api/logout']);
-
-  /**
-   * Hosted storage: open a copy of the data, run the route, save if it changed.
-   * If another device saved in between, run the route again on the newer data.
-   */
-  async function runScoped(routeHandler, ctx) {
-    for (let attempt = 1; ; attempt += 1) {
-      const lease = await store.begin();
-      try {
-        const out = await routeHandler(ctx);
-        await lease.commit();
-        return out;
-      } catch (e) {
-        lease.abort(); // nothing is saved for a request that failed
-        if (!(e instanceof StorageConflict) || attempt >= 5) throw e;
-        await new Promise((r) => setTimeout(r, 5 + Math.random() * 40)); // spread out two writers
-      }
-    }
-  }
-
-  async function handler(req, res) {
-    try {
-      if (!hostAllowed(req)) throw new HttpError(403, 'Unexpected Host header');
-      const url = new URL(req.url, 'http://localhost');
-      const method = req.method;
-      const isApi = url.pathname.startsWith('/api/');
-
-      if (method !== 'GET' && method !== 'HEAD' && req.headers.origin) {
-        let originHost = null;
-        try { originHost = new URL(req.headers.origin).host; } catch { /* invalid origin */ }
-        if (originHost !== req.headers.host) throw new HttpError(403, 'Cross-site requests are not allowed');
-      }
-
-      if (isApi) {
-        const found = router.match(method, url.pathname);
-        if (!found) throw new HttpError(404, 'Not found');
-        if (found.methodNotAllowed) throw new HttpError(405, 'Method not allowed');
-        let cached;
-        const ctx = {
-          req,
-          params: found.params,
-          query: url.searchParams,
-          json: async () => (cached ??= await readJson(req)),
-        };
-
-        const open = OPEN_ROUTES.has(url.pathname.replace(/\/+$/, ''));
-        if (!open) {
-          if (auth.misconfigured) {
-            throw new HttpError(503, 'Day Hub needs a password before it can run online. Add DAYHUB_PASSWORD in your host settings, then redeploy.', 'setup');
-          }
-          if (!auth.signedIn(req)) throw new HttpError(401, 'Please sign in.', 'auth');
-          // Read the body first, so a slow upload never holds up the storage.
-          if (method === 'POST' || method === 'PUT' || method === 'PATCH') await ctx.json();
-        }
-
-        const out = scoped && !open ? await runScoped(found.handler, ctx) : await found.handler(ctx);
-        const reply = out instanceof Reply ? out : new Reply(200, out);
-        send(res, reply.status, reply.body, { ...SECURITY_HEADERS, 'cache-control': 'no-store', ...reply.headers });
-        return;
-      }
-
-      if (method !== 'GET' && method !== 'HEAD') throw new HttpError(405, 'Method not allowed');
-      const served = await serveStatic(config.publicDir, url.pathname, res, SECURITY_HEADERS);
-      if (!served) throw new HttpError(404, 'Not found');
-    } catch (e) {
-      if (res.headersSent) { res.end(); return; }
-      if (e instanceof HttpError) {
-        send(res, e.status, e.code ? { error: e.message, code: e.code } : { error: e.message }, { ...SECURITY_HEADERS, 'cache-control': 'no-store' });
-      } else if (e instanceof StorageConflict) {
-        send(res, 409, { error: e.message }, { ...SECURITY_HEADERS, 'cache-control': 'no-store' });
-      } else if (e instanceof StorageError) {
-        console.error('Storage error:', e.message);
-        send(res, 503, { error: e.message, code: 'storage' }, { ...SECURITY_HEADERS, 'cache-control': 'no-store' });
-      } else {
-        console.error('Unexpected error:', e);
-        send(res, 500, { error: 'Something went wrong on the server' }, { ...SECURITY_HEADERS });
-      }
-    }
-  }
-
-  return handler;
+  return router;
 }

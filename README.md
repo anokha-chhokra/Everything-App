@@ -1,10 +1,12 @@
 # Day Hub
 
-One page for your day: **tasks, daily habits with points and streaks, a journal, an expense manager, and a YouTube music player** that plays without leaving the app. Cream-paper, hand-written look. Runs on your own computer (your data stays in one file) or on Vercel (your data stays in storage you own).
+One page for your day: **tasks, daily habits with points and streaks, a journal, an expense manager, and a YouTube music player** that plays without leaving the app. Cream-paper, hand-written look.
+
+**There is no database and no server-side data.** Day Hub is a static web page. Everything you enter is kept in *your browser, on your device*, and is never uploaded. Open it on another phone or computer and you start with a clean, separate Day Hub: your data is **per device** (more exactly, per browser profile). There are no accounts and no login, so nothing to sign in to and nothing for anyone else to read.
 
 ## Quick start
 
-You need **Node 22.13 or newer**. There is nothing to install (no `npm install`). (`package.json` asks for Node 24 because that is what the Vercel copy runs; on your computer npm may print a warning about it, which you can ignore.)
+You need **Node 20 or newer** to serve the files. There is nothing to install (no `npm install`).
 
 ```
 node server.js        # or: npm start
@@ -12,9 +14,11 @@ node server.js        # or: npm start
 
 Open http://127.0.0.1:3000. The first time, a four-step setup asks for your name, your currency and monthly budget, a few starter habits, and an optional YouTube link. You can skip it.
 
+`server.js` only hands the files in `public/` to your browser. It never sees your data. Any static host works the same way (see *Put it on Vercel* below), so you can also just open the hosted site.
+
 ### On your phone
 
-Run it with `HOST=0.0.0.0 node server.js`, then open `http://<your-computer-ip>:3000` on the same Wi-Fi. Use "Add to Home Screen" in the browser to get an app icon. **There is no login unless you set `DAYHUB_PASSWORD`**, so only do this on a network you trust, or set a password.
+Open the hosted site (or `HOST=0.0.0.0 node server.js` and `http://<your-computer-ip>:3000` on the same Wi-Fi) and use "Add to Home Screen" for an app icon. Your phone keeps its own data, separate from your computer's. To move data between devices, download a backup on one and use **Restore from backup** on the other.
 
 ## What it does
 
@@ -28,7 +32,7 @@ Run it with `HOST=0.0.0.0 node server.js`, then open `http://<your-computer-ip>:
 - **Spending**: amounts in ₹ by default (any currency code), 7 categories, month-by-month view, category bars, CSV export.
 - **Music**: paste a YouTube video or playlist link into the box on Home (it plays the moment you paste). Saved links are listed. Music keeps playing while you switch tabs inside the app.
 - **Reminders**: a daily journal reminder and a time per habit. They show inside Day Hub and, if you allow it in Settings, as system notifications. A web page cannot wake itself, so they only fire while Day Hub is open in a tab or window.
-- **Backup**: Settings has a full JSON backup, an all-expenses CSV and a Markdown export of your stats, habits, badges and journal.
+- **Backup and restore**: Settings has a full JSON backup, an all-expenses CSV and a Markdown export of your stats, habits, badges and journal. "Restore from backup" reads a JSON backup back in. Backups are made on your device and handed to your browser's download; nothing is sent anywhere.
 
 ## The rules (how Day Hub decides things)
 
@@ -41,62 +45,54 @@ Run it with `HOST=0.0.0.0 node server.js`, then open `http://<your-computer-ip>:
 - **Quick mood**: tapping a mood face within 30 minutes of the last quick tap corrects that check-in instead of adding another.
 - **Expense detection**: ignores income and budgets ("earned ₹5000", "got paid", "refund", "budget ₹30000"); understands `k`, `lakh` and `crore`; reads "yesterday", "N days ago" and "on Friday" relative to the entry's day; and learns categories from your own past expenses (a word you have filed under the same category twice overrides the built-in word list). When you edit an entry, spending that is already saved with it is not suggested again, and you can add new spending found in the edited text. Editing an entry's day or time moves its linked spending too.
 
+## Your data lives in your browser
+
+This is the trade-off of having no server, so it is worth knowing:
+
+- **Per device.** Each browser profile has its own Day Hub. Two devices (or two browsers on one computer, or a private window) do not share anything. Use Backup and Restore to copy data between them. Restore *replaces* what is on that device, and asks first.
+- **Clearing site data deletes it.** "Clear browsing data", removing the site's data, or uninstalling the browser takes your entries with it. **Download a backup now and then** (Settings, Your data, Backup (JSON)).
+- **iPhone / iPad Safari** may clear a website's data after about 7 days without a visit, unless the site is added to the Home Screen. Add Day Hub to your Home Screen, and keep a backup.
+- **Room.** Browsers allow roughly 5 MB per site. That is years of text entries, but Settings shows how much you are using, and Day Hub tells you plainly if the browser is full (nothing is half-saved).
+- **Blocked storage.** If the browser refuses to store site data, Day Hub still works for that visit, shows a warning, and forgets everything when the tab closes.
+- **Several tabs** of one browser stay in step: a change in one shows up in the others.
+- **If saved data cannot be read** (for example a damaged copy), Day Hub shows a recovery screen. It never overwrites it: you can download the saved text exactly as it was, then choose Start fresh (the unreadable copy is kept under another name).
+- **The only outside requests** are the Google Fonts stylesheet (for the hand-written look) and the YouTube player when a link is playing. The page's Content-Security-Policy (`connect-src 'none'`) means the browser itself blocks the page from sending data anywhere.
+
+### Moving over data from the earlier file-based version
+
+If you used Day Hub when it kept data in `data/dayhub.db` on your computer (Node 22.13 or newer needed for this one step):
+
+```
+npm run export-old-data          # reads data/dayhub.db, writes dayhub-backup.json
+```
+
+Then open Day Hub, go to Settings, choose **Restore from backup** and pick `dayhub-backup.json`. The script only reads your database. A backup made by the earlier version's own "Backup (JSON)" button restores the same way.
+
 ## Put it on Vercel
 
-Vercel has no hard disk your app can keep, so the Vercel copy keeps your data in **Upstash Redis**, a small hosted store you add from Vercel's Marketplace (the free plan is plenty). Everything else is the same code: the points, streaks, timeline and spending rules all run unchanged.
+The site is plain static files, so Vercel needs **no database, no storage add-on, no environment variables and no build**:
 
-1. **Deploy** this folder to a Vercel project (push to GitHub and import it, or run `vercel`). Leave the framework as "Other"; `vercel.json` already tells Vercel what to do.
-2. **Add the storage**: in the project, open **Storage**, choose **Upstash Redis** (Marketplace), create a free database and connect it to the project. Vercel adds `KV_REST_API_URL` and `KV_REST_API_TOKEN` for you.
-3. **Set a password**: Settings, Environment Variables, add `DAYHUB_PASSWORD` with a password you will remember. Anyone who knows the address can reach a site on the internet, and this holds your journal, so **a hosted Day Hub shows nothing until a password is set**.
-4. **Redeploy** (Deployments, the three dots, Redeploy). Open the site and sign in. Your sign-in lasts 30 days on that device.
+1. Push this folder to GitHub and import it in Vercel (or run `vercel`).
+2. Leave the framework as "Other". `vercel.json` already says: no build, serve `public/`, add the security headers.
+3. Deploy. That is all.
 
-Already have entries on your computer? Put the two storage values in a local `.env` file (copy them from the Upstash database page in Vercel) and run `npm run upload` once. It refuses to overwrite data that is already online unless you add `--force`.
+If you set it up earlier with Upstash and `DAYHUB_PASSWORD`, you can delete that Storage integration and those variables; nothing reads them any more. Data is not on Vercel at all, so the first visit to the new deployment starts empty: restore a backup (see above).
 
-How it works, so there are no surprises:
-
-- Each request loads your data into a throw-away in-memory database, runs, and saves back only if something changed. Saves are checked ("only if nobody saved since I looked"), so two devices can never silently overwrite each other; if two collide, the later one is retried on the newer data.
-- Everything is stored as one compressed snapshot. Upstash's free plan allows about 1 MB per request, so Day Hub stops saving at about 900 KB compressed and tells you. In plain text that is years of journal entries; use Backup in Settings now and then regardless.
-- If you see "Storage is not connected", step 2 is missing or the project has not been redeployed since. `/api/health` on your site shows which storage and sign-in mode it is using (no secrets).
-- Optional settings: `DAYHUB_SESSION_SECRET` (a long random string, signs the sign-in cookie), `DAYHUB_KEY_PREFIX` (to run two copies in one database), `DAYHUB_MAX_SNAPSHOT_KB` (raise it on a bigger Upstash plan).
-- Reminders still only fire while the page is open; Vercel cannot wake your phone.
-
-## Configuration (environment variables, or a `.env` file)
-
-| Variable | Default | Meaning |
-|---|---|---|
-| `PORT` | `3000` | Port to listen on |
-| `HOST` | `127.0.0.1` | Use `0.0.0.0` to allow other devices |
-| `DB_PATH` | `data/dayhub.db` | SQLite file |
-| `DB_CLIENT` | `sqlite` (`upstash` on Vercel) | Where data is kept |
-| `DAYHUB_PASSWORD` | none | Ask for this password. Required on Vercel |
-| `DAYHUB_SESSION_SECRET` | derived | Extra secret for the sign-in cookie |
-| `KV_REST_API_URL`, `KV_REST_API_TOKEN` | none | Upstash Redis (Vercel adds these). `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` work too |
-
-Copy `.env.example` to `.env` to use a file.
+Anyone with the URL can open the site, but they get *their own* empty Day Hub; they cannot see yours, because yours is only in your browser.
 
 ## Things to know
 
 - **Fonts** (Caveat, Patrick Hand) load from Google Fonts, so you need internet for the hand-written look. Offline it falls back to a plain font and still works.
 - Some **YouTube** videos forbid embedding; try another link.
 - Audio from embedded players may stop when a phone screen locks. That is a browser limit.
-- One shared password at most (`DAYHUB_PASSWORD`), no accounts. Wrong guesses are rate-limited (best effort on Vercel, where each server instance counts for itself). On your computer the default is local-only (`127.0.0.1`) with no password. The server also checks the Host and Origin headers, sets a strict Content-Security-Policy, and limits request size.
+- A journal entry keeps your line breaks. (An earlier version flattened them to spaces.)
+- The page sets a strict Content-Security-Policy, and the guard tests fail if any code in `public/` tries to use the network, a database or `fetch`.
 
-## Switching databases
+## How it is built
 
-Storage sits behind a small interface in `src/store/`. `DB_CLIENT` picks the implementation in `src/store/index.js`: `sqlite` (a file) or `upstash` (Redis over HTTPS, for Vercel; it wraps the SQLite store as a per-request snapshot, see `src/store/serverless.js`). To use PostgreSQL or MySQL, write a module that exports a factory returning the same methods as `src/store/sqlite.js` and register it in `index.js`:
+The old "API" still exists, but it runs inside the page. `createBackend().call(method, url, body)` (in `public/js/core/backend.js`) matches a route, runs it against a JSON document held in the browser's `localStorage` (key `dayhub:data:v1`), and saves only if something changed. Every request is applied all-or-nothing: if saving fails (the browser is full) the change is undone and you get an error, never half a change. Calls are queued one at a time, and the document is re-read before each, so several tabs cannot overwrite each other.
 
-```
-getSettings, setSettings,
-listTasks, getTask, createTask, updateTask, deleteTask, dashboardTasks,
-createExpense, deleteExpense, listExpenses, summarizeExpenses,
-getHabit, listHabits, createHabit, updateHabit, setHabitLog, listLogs,
-getEntry, listEntries, createEntry, updateEntry, deleteEntry,
-listBadges, unlockBadges,
-listMusic, getMusic, addMusic, deleteMusic,
-exportAll, close
-```
-
-The rest of the app only talks to these methods. Money is stored as integer minor units (paise/cents). SQLite and Upstash are implemented today. A PostgreSQL or MySQL store would not need the snapshot trick, but it does need its own copies of the rules' queries.
+All the rules (points, streaks, badges, the timeline, expense detection) are the same code as before. Money is stored as integer minor units (paise/cents). A restore or a load goes through a strict reader: a bad file is refused and changes nothing.
 
 ## Tests
 
@@ -104,17 +100,17 @@ The rest of the app only talks to these methods. Money is stored as integer mino
 npm test
 ```
 
-55 tests cover validation, YouTube link parsing, habit points and streaks, badges, expense detection, an upgrade from the first database version, security checks, every API route (using an in-memory database), and the Vercel side: the Upstash backend, snapshot store, two servers writing at once, the password sign-in and the Vercel entry point. The Vercel tests run against a small fake Upstash server in `test/helpers/`, so they need no account.
+53 tests cover validation, YouTube link parsing, habit points and streaks, badges, expense detection, every route (run in-process against an in-memory store), the browser store (saving, rollback when full, orphan clean-up, restore, damaged data, the older backup format), the static file server and its security headers, a guard that nothing in `public/` touches the network or a database, and a check that every `import { name }` between the page's modules really exists. They need no browser; the screens themselves were checked separately in a real browser (Chromium via Playwright), which is not part of `npm test`.
 
 ## Layout
 
 ```
-server.js        start-up and shutdown (your computer)
-api/index.js     the entry Vercel runs (see vercel.json)
-vercel.json      Vercel settings: static files from public/, /api to the function, security headers
-src/             router, API, store, sign-in, habits and journal rules, expense detection, music link parsing
-src/store/       sqlite.js (file), upstash.js + serverless.js (Vercel)
-scripts/         upload-data.js (copy your local data to Vercel)
-public/          index.html, styles.css, js/ (plain ES modules, no build step)
+server.js        a static file server for public/ (your computer); reads its headers from vercel.json
+vercel.json      static deploy: no build, serve public/, security headers (CSP, nosniff, frame-deny)
+public/          index.html, styles.css, manifest, icon
+public/js/       the screens: plain ES modules, no build step
+public/js/core/  the engine: store.js (the data), routes.js (what each action does), backend.js, router.js,
+                 habits.js, commit.js, detect.js, insights.js, prompts.js, music.js, validate.js
+scripts/         export-old-data.js (one-time: data/dayhub.db -> backup file)
 test/            node:test suites
 ```

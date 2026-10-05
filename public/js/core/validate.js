@@ -1,10 +1,10 @@
-// Small input-validation helpers. Everything user-supplied goes through these.
+// Small input-validation helpers. Everything the user types or imports goes through these.
 
+/** A request the app refuses, with an HTTP-style status the screens can read. */
 export class HttpError extends Error {
-  constructor(status, message, code = null) {
+  constructor(status, message) {
     super(message);
     this.status = status;
-    this.code = code; // lets the browser tell "sign in" from other problems
   }
 }
 
@@ -17,15 +17,21 @@ export function obj(value) {
   return value;
 }
 
-/** Trimmed text with control characters removed. Empty -> null when optional. */
-export function str(value, field, { max = 200, optional = false } = {}) {
+/**
+ * Trimmed text with control characters removed. Empty -> null when optional.
+ * `multiline` keeps line breaks and tabs (for journal entries); everything else is one line.
+ */
+export function str(value, field, { max = 200, optional = false, multiline = false } = {}) {
   if (value === undefined || value === null) {
     if (optional) return null;
     throw bad(`${field} is required`);
   }
   if (typeof value !== 'string') throw bad(`${field} must be text`);
-  // eslint-disable-next-line no-control-regex
-  const s = value.replace(/[\u0000-\u001f\u007f]/g, ' ').trim();
+  const s = (multiline
+    // eslint-disable-next-line no-control-regex
+    ? value.replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, ' ')
+    // eslint-disable-next-line no-control-regex
+    : value.replace(/[\u0000-\u001f\u007f]/g, ' ')).trim();
   if (!s) {
     if (optional) return null;
     throw bad(`${field} is required`);

@@ -92,31 +92,41 @@ export function squiggle() {
   return svg;
 }
 
-// ---------- talking to the server ----------
+// ---------- talking to the app's data ----------
+// There is no server. api() runs the app's routes inside this page, against the data
+// saved in this browser (see core/backend.js). Screens do not need to know that.
+
+let backend = null;
+export function useBackend(b) { backend = b; }
 
 export async function api(path, { method = 'GET', body } = {}) {
-  let res;
-  try {
-    res = await fetch(`/api${path}`, {
-      method,
-      headers: body === undefined ? undefined : { 'content-type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-  } catch {
-    throw new Error('Cannot reach Day Hub. Is it still running?');
-  }
+  if (!backend) throw new Error('Day Hub is still starting. Try again in a moment.');
+  const res = await backend.call(method, `/api${path}`, body);
   if (res.status === 204) return null;
-  let data = null;
-  try { data = await res.json(); } catch { /* not JSON */ }
-  if (!res.ok) {
-    const err = new Error((data && data.error) || `Something went wrong (${res.status})`);
+  if (res.status >= 400) {
+    const err = new Error((res.body && res.body.error) || `Something went wrong (${res.status})`);
     err.status = res.status;
-    err.code = data && data.code;
-    // The sign-in expired (or was never there): go back to the login screen.
-    if (res.status === 401 && err.code === 'auth' && !path.startsWith('/login')) app.onAuthLost();
     throw err;
   }
-  return data;
+  return res.body;
+}
+
+/** Hands a file (backup, CSV, Markdown) to the browser's download, built right here on this device. */
+export async function download(path, filename) {
+  if (!backend) throw new Error('Day Hub is still starting. Try again in a moment.');
+  const res = await backend.call('GET', `/api${path}`);
+  if (res.status >= 400) throw new Error((res.body && res.body.error) || 'Could not make that file');
+  const text = typeof res.body === 'string' ? res.body : `${JSON.stringify(res.body, null, 2)}\n`;
+  saveTextFile(text, filename, (res.headers['content-type'] || 'application/json').split(';')[0]);
+}
+
+export function saveTextFile(text, filename, type = 'text/plain') {
+  const url = URL.createObjectURL(new Blob([text], { type: `${type};charset=utf-8` }));
+  const a = h('a', { href: url, download: filename });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
 export const MOODS = [
@@ -144,9 +154,7 @@ export const app = {
   go: (route) => { location.hash = `#/${route}`; },
   current: 'home',
   onChange: () => {}, // views call this after changing data so Home can refresh
-  onAuthLost: () => {}, // set by the shell: show the sign-in screen again
-  signIn: 'off',        // 'password' when this copy asks for a password
-  hosted: false,        // true when the data lives in hosted storage instead of a local file
+  volatile: false,      // true when the browser blocks storage, so data only lasts until the tab closes
 };
 
 // ---------- toast ----------

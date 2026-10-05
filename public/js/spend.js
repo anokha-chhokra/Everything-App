@@ -1,4 +1,4 @@
-import { h, clear, icon, api, app, money, monthTitle, shiftMonth, shortDate, ymd, showError } from './lib.js';
+import { h, clear, icon, api, app, money, monthTitle, shiftMonth, shortDate, ymd, showError, download } from './lib.js';
 import { openExpenseSheet, deleteExpenseWithUndo, paceText } from './components.js';
 
 export function mountSpend(container) {
@@ -55,7 +55,7 @@ export function mountSpend(container) {
           h('div', { class: 'bar' }, h('i', { style: `width:${Math.round((c.totalMinor / top) * 100)}%` })))))
         : null,
       h('div', { class: 'actions' },
-        h('a', { class: 'btn', href: `/api/expenses.csv?month=${ym}`, download: `expenses-${ym}.csv` }, icon('download', 18), ' CSV')));
+        h('button', { class: 'btn', type: 'button', onClick: () => download(`/expenses.csv?month=${ym}`, `expenses-${ym}.csv`).catch(showError) }, icon('download', 18), ' CSV')));
 
     let list;
     if (!res.expenses.length) {

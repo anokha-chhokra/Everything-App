@@ -2,7 +2,7 @@
 // hash routing. Home stays mounted (just hidden) so music keeps playing while
 // you look at other tabs.
 
-import { $, h, clear, icon, api, app, showError } from './lib.js';
+import { $, h, clear, icon, api, app, showError, toast, useBackend } from './lib.js';
 import { createHome } from './home.js';
 import { mountTasks } from './tasks.js';
 import { mountSpend } from './spend.js';
@@ -12,7 +12,9 @@ import { mountJournal } from './journal.js';
 import { startReminders } from './reminders.js';
 import { mountSettings } from './settings.js';
 import { runWizard } from './wizard.js';
-import { showLogin, showSetupNeeded } from './login.js';
+import { createBackend, browserStorage } from './core/backend.js';
+import { DamagedData, STORAGE_KEY } from './core/store.js';
+import { showDamaged } from './damaged.js';
 
 const NAV = [['home', 'Home', 'home'], ['tasks', 'Tasks', 'tasks'], ['habits', 'Habits', 'habits'], ['journal', 'Journal', 'journal'], ['spend', 'Spend', 'spend'], ['music', 'Music', 'music']];
 const TITLES = { home: 'Day Hub', tasks: 'Tasks', habits: 'Habits', journal: 'Journal', spend: 'Spending', music: 'Music', settings: 'Settings' };
@@ -77,22 +79,24 @@ app.onChange = () => {
   if (activeOther && views[activeOther]) views[activeOther].refresh();
 };
 
-// The sign-in cookie ran out while the app was open: start over at the login screen.
-let reloading = false;
-app.onAuthLost = () => {
-  if (reloading) return;
-  reloading = true;
-  location.reload();
-};
-
 async function boot() {
+  // Open the data saved in this browser. There is no server to ask.
+  const storage = browserStorage();
+  try {
+    useBackend(createBackend({ storage }));
+  } catch (e) {
+    if (e instanceof DamagedData) { showDamaged($('#v-home'), e, storage); return; }
+    throw e;
+  }
+  app.volatile = !!storage.volatile;
+  if (app.volatile) toast('This browser is blocking storage, so Day Hub will forget everything when you close the tab.', { ms: 8000 });
+  // Ask the browser not to clear our data when it is short on space (it may say no).
+  try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch { /* optional */ }
+  // Another tab of this browser saved something: show it.
+  window.addEventListener('storage', (e) => { if (e.key === STORAGE_KEY) app.onChange(); });
+
   let state;
   try {
-    const session = await api('/session');
-    if (session.signIn === 'missing') { showSetupNeeded($('#v-home')); return; }
-    app.signIn = session.signIn;
-    app.hosted = !!session.hosted;
-    if (session.signIn === 'password' && !session.signedIn) await showLogin($('#v-home'));
     state = await api('/state');
   } catch (e) {
     clear($('#v-home'), h('div', { class: 'page' }, h('h1', null, 'Day Hub'), h('p', { class: 'error' }, e.message),

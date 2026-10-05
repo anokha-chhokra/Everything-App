@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseMusicUrl } from '../src/music.js';
-import { moneyToMinor, isoDate, monthRange, HttpError } from '../src/validate.js';
+import { parseMusicUrl } from '../public/js/core/music.js';
+import { moneyToMinor, isoDate, monthRange, HttpError } from '../public/js/core/validate.js';
 
 
 test('music: YouTube links become privacy-friendly embeds', () => {
@@ -44,9 +44,9 @@ test('validate: dates and month ranges', () => {
 });
 
 // ---------- commit() features ----------
-import { dayPoints, isDone, isOk, isScheduled, computeStats, earnedBadgeIds, weekday } from '../src/habits.js';
-import { detectExpenses } from '../src/detect.js';
-import { promptForDay, wordCount } from '../src/prompts.js';
+import { dayPoints, isDone, isOk, isScheduled, computeStats, earnedBadgeIds, weekday } from '../public/js/core/habits.js';
+import { detectExpenses } from '../public/js/core/detect.js';
+import { promptForDay, wordCount } from '../public/js/core/prompts.js';
 
 const H = (over) => ({ id: 1, kind: 'check', target: 1, points: 10, days: [0, 1, 2, 3, 4, 5, 6], createdOn: '2026-01-01', archived: false, ...over });
 
@@ -125,10 +125,10 @@ test('prompts: one per day, stable, and word counting', () => {
 });
 
 // ---------- better logic ----------
-import { isActivity, addDays as addDay } from '../src/habits.js';
-import { buildHints } from '../src/detect.js';
-import { spendPace, buildAttention } from '../src/insights.js';
-import { partOfDay } from '../src/commit.js';
+import { isActivity, addDays as addDay } from '../public/js/core/habits.js';
+import { buildHints } from '../public/js/core/detect.js';
+import { spendPace, buildAttention } from '../public/js/core/insights.js';
+import { partOfDay } from '../public/js/core/commit.js';
 
 const habit = (o = {}) => ({ id: 1, title: 'x', kind: 'check', target: 1, points: 10, days: [0, 1, 2, 3, 4, 5, 6], createdOn: '2026-01-01', archived: false, ...o });
 const stats = (habits, logs, entries, today) => computeStats({ habits, logs, entries, today });

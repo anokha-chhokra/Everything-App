@@ -1,4 +1,4 @@
-import { h, clear, icon, api, app, showError, toast, ymd } from './lib.js';
+import { h, clear, icon, api, app, showError, toast, ymd, download, openSheet } from './lib.js';
 import { CURRENCIES, runWizard } from './wizard.js';
 
 export function mountSettings(container) {
@@ -11,8 +11,11 @@ export function mountSettings(container) {
     let settings;
     try { settings = await api('/settings'); } catch (e) { showError(e); return; }
     if (mine !== token) return;
+    let usage = null;
+    try { usage = await api('/storage'); } catch { /* the usage line is optional */ }
+    if (mine !== token) return;
     app.settings = settings;
-    clear(body, profileTile(settings), reminderTile(settings), dataTile());
+    clear(body, profileTile(settings), reminderTile(settings), dataTile(usage));
   }
 
   function profileTile(s) {
@@ -67,23 +70,53 @@ export function mountSettings(container) {
       h('div', { class: 'actions' }, h('button', { class: 'btn primary', type: 'submit' }, 'Save')));
   }
 
-  function dataTile() {
+  function dataTile(usage) {
+    const used = usage && !app.volatile ? `Day Hub is using about ${Math.max(1, Math.round(usage.chars / 1024))} KB of the roughly ${Math.round(usage.limitChars / 1024).toLocaleString()} KB this browser allows.` : '';
+    const fileInput = h('input', { type: 'file', accept: 'application/json,.json', hidden: true, id: 's-restore',
+      onChange: async (e) => {
+        const file = e.target.files && e.target.files[0];
+        e.target.value = '';
+        if (file) await chooseBackup(file);
+      } });
     return h('section', { class: 'tile tilt-d' },
       h('h2', null, 'Your data'),
-      h('p', { class: 'hint' }, app.hosted
-        ? 'Your data is kept in the storage you connected to this Vercel project. Nothing is sent anywhere else. Download a backup now and then.'
-        : 'Everything lives in a file on the computer running Day Hub. Nothing is sent anywhere.'),
+      app.volatile
+        ? h('p', { class: 'error' }, 'This browser is blocking storage, so Day Hub will forget everything when you close this tab. Allow site data for this page, or download a backup before you leave.')
+        : h('p', { class: 'hint' }, 'Your data is saved only in this browser, on this device. It is never uploaded, so another phone or computer starts empty, and clearing the browser\u2019s site data deletes it. Download a backup now and then. On an iPhone, adding Day Hub to your Home Screen keeps Safari from clearing it.'),
+      used && h('p', { class: 'hint' }, used),
       h('div', { class: 'actions' },
-        h('a', { class: 'btn', href: '/api/export', download: 'day-hub-backup.json' }, icon('download', 18), ' Backup (JSON)'),
-        h('a', { class: 'btn', href: '/api/expenses.csv', download: 'expenses-all.csv' }, icon('download', 18), ' All expenses (CSV)'),
-        h('a', { class: 'btn', href: `/api/export.md?today=${ymd()}`, download: 'day-hub-journal.md' }, icon('download', 18), ' Journal (Markdown)'),
-        h('button', { class: 'btn', type: 'button', onClick: () => runWizard({ onDone: async () => { await refresh(); app.onChange(); } }) }, 'Run setup again'),
-        app.signIn === 'password' && h('button', { class: 'btn', type: 'button', onClick: signOut }, 'Sign out')));
+        h('button', { class: 'btn', type: 'button', onClick: () => download('/export', 'day-hub-backup.json').catch(showError) }, icon('download', 18), ' Backup (JSON)'),
+        h('button', { class: 'btn', type: 'button', onClick: () => document.getElementById('s-restore').click() }, 'Restore from backup'),
+        h('button', { class: 'btn', type: 'button', onClick: () => download('/expenses.csv', 'expenses-all.csv').catch(showError) }, icon('download', 18), ' All expenses (CSV)'),
+        h('button', { class: 'btn', type: 'button', onClick: () => download(`/export.md?today=${ymd()}`, 'day-hub-journal.md').catch(showError) }, icon('download', 18), ' Journal (Markdown)'),
+        h('button', { class: 'btn', type: 'button', onClick: () => runWizard({ onDone: async () => { await refresh(); app.onChange(); } }) }, 'Run setup again')),
+      fileInput);
   }
 
-  async function signOut() {
-    try { await api('/logout', { method: 'POST', body: {} }); } catch { /* signing out anyway */ }
-    location.reload();
+  /** Reads a backup file and asks before replacing what is on this device. */
+  async function chooseBackup(file) {
+    let data;
+    try {
+      if (file.size > 50_000_000) throw new Error('too big');
+      data = JSON.parse(await file.text());
+    } catch {
+      toast('That file is not a Day Hub backup.');
+      return;
+    }
+    const count = (k) => (data && Array.isArray(data[k]) ? data[k].length : 0);
+    openSheet('Restore from backup', (close) => h('div', { class: 'stack' },
+      h('p', null, `This backup has ${count('journal')} journal entries, ${count('tasks')} tasks, ${count('expenses')} expenses and ${count('habits')} habits.`),
+      h('p', { class: 'error' }, 'Restoring replaces everything now saved on this device.'),
+      h('div', { class: 'actions' },
+        h('button', { class: 'btn', type: 'button', onClick: close }, 'Cancel'),
+        h('button', { class: 'btn primary', type: 'button', onClick: async () => {
+          try {
+            await api('/import', { method: 'POST', body: data });
+          } catch (err) { showError(err); return; }
+          close();
+          location.hash = '#/';
+          location.reload();
+        } }, 'Replace my data'))));
   }
 
   return { refresh };

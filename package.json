@@ -2,14 +2,14 @@
   "name": "day-hub",
   "version": "1.0.0",
   "private": true,
-  "description": "A paper-style personal dashboard: tasks, habits, a journal timeline, spending and a YouTube music player.",
+  "description": "A paper-style personal dashboard: tasks, habits, a journal timeline, spending and a YouTube music player. No server, no database: your data stays in your browser.",
   "type": "module",
   "engines": {
-    "node": "24.x"
+    "node": ">=20"
   },
   "scripts": {
-    "start": "node --disable-warning=ExperimentalWarning server.js",
-    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js",
-    "upload": "node --disable-warning=ExperimentalWarning scripts/upload-data.js"
+    "start": "node server.js",
+    "test": "node --test test/*.test.js",
+    "export-old-data": "node --disable-warning=ExperimentalWarning scripts/export-old-data.js"
   }
 }

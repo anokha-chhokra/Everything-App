@@ -1,32 +1,26 @@
-import { test, before, after } from 'node:test';
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import http from 'node:http';
-import { createSqliteStore } from '../src/store/sqlite.js';
-import { createApp } from '../src/app.js';
-import { loadConfig } from '../src/config.js';
+import { createBackend } from '../public/js/core/backend.js';
+import { memoryStorage } from '../public/js/core/store.js';
 
 const TODAY = '2026-10-05';
 const YOUTUBE = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
 
-// ---- app under test ----
-async function startApp() {
-  const config = loadConfig({ dbPath: ':memory:', host: '127.0.0.1' });
-  const store = createSqliteStore(':memory:');
-  const server = http.createServer(createApp({ store, config }));
-  await new Promise((r) => server.listen(0, '127.0.0.1', r));
-  const base = `http://127.0.0.1:${server.address().port}`;
-  const call = async (method, path, body, headers = {}) => {
-    const res = await fetch(base + path, {
-      method,
-      headers: { ...(body !== undefined ? { 'content-type': 'application/json' } : {}), ...headers },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
-    const text = await res.text();
-    let json = null;
-    try { json = JSON.parse(text); } catch { /* not json */ }
-    return { status: res.status, json, text, headers: res.headers };
+// ---- app under test: the same routes the page runs, against a store kept in memory ----
+function startApp(storage = memoryStorage()) {
+  const backend = createBackend({ storage });
+  const call = async (method, path, body) => {
+    const res = await backend.call(method, path, body);
+    const text = typeof res.body === 'string' ? res.body : res.body === null || res.body === undefined ? '' : JSON.stringify(res.body);
+    const lower = Object.fromEntries(Object.entries(res.headers).map(([k, v]) => [k.toLowerCase(), v]));
+    return {
+      status: res.status,
+      json: res.body && typeof res.body === 'object' ? res.body : null,
+      text,
+      headers: { get: (k) => lower[String(k).toLowerCase()] ?? null },
+    };
   };
-  return { call, base, store, port: server.address().port, close: () => { server.close(); store.close(); } };
+  return { call, store: backend.store, storage, close: () => {} };
 }
 
 test('first run: not set up, then the wizard saves everything at once', async () => {
@@ -179,48 +173,20 @@ test('settings: validation and backup', async () => {
   } finally { app.close(); }
 });
 
-test('security: host check, cross-site writes, content type, headers, odd URLs', async () => {
-  const app = await startApp();
-  const raw = (path, { method = 'GET', headers = {}, body } = {}) => new Promise((resolve, reject) => {
-    const req = http.request({ host: '127.0.0.1', port: app.port, path, method, headers }, (res) => {
-      let data = '';
-      res.on('data', (c) => { data += c; });
-      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, text: data }));
-    });
-    req.on('error', reject);
-    req.end(body);
-  });
+test('routes: unknown paths, wrong methods and odd input are refused cleanly', async () => {
+  const app = startApp();
   try {
-    // DNS-rebinding style host header
-    assert.equal((await raw('/api/health', { headers: { host: 'evil.example' } })).status, 403);
-    // another website posting to the local app
-    const cross = await raw('/api/tasks', {
-      method: 'POST', body: JSON.stringify({ title: 'x' }),
-      headers: { host: `127.0.0.1:${app.port}`, origin: 'https://evil.example', 'content-type': 'application/json' },
-    });
-    assert.equal(cross.status, 403);
-    // same-origin write is fine
-    const same = await raw('/api/tasks', {
-      method: 'POST', body: JSON.stringify({ title: 'ok' }),
-      headers: { host: `127.0.0.1:${app.port}`, origin: `http://127.0.0.1:${app.port}`, 'content-type': 'application/json' },
-    });
-    assert.equal(same.status, 201);
-    // form-style posts are not accepted
-    const form = await raw('/api/tasks', { method: 'POST', body: 'title=x', headers: { 'content-type': 'application/x-www-form-urlencoded' } });
-    assert.equal(form.status, 415);
-    const broken = await raw('/api/tasks', { method: 'POST', body: '{nope', headers: { 'content-type': 'application/json' } });
-    assert.equal(broken.status, 400);
-    const huge = await raw('/api/tasks', { method: 'POST', body: JSON.stringify({ title: 'x'.repeat(200_000) }), headers: { 'content-type': 'application/json' } });
-    assert.equal(huge.status, 413);
-
-    const health = await raw('/api/health');
-    assert.match(health.headers['content-security-policy'], /frame-src https:\/\/www\.youtube-nocookie\.com/);
-    assert.equal(health.headers['x-content-type-options'], 'nosniff');
-    assert.equal((await raw('/api/nothing')).status, 404);
-    assert.equal((await raw('/api/tasks', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: '{}' })).status, 405);
-    assert.equal((await raw('/%2e%2e/package.json')).status, 404);
-    assert.equal((await raw('/..%2f..%2fetc/passwd')).status, 404);
-    assert.equal((await raw('/%00')).status, 404);
+    assert.equal((await app.call('GET', '/api/nothing')).status, 404);
+    assert.equal((await app.call('PUT', '/api/tasks', {})).status, 405);
+    assert.equal((await app.call('DELETE', '/api/tasks/%E0%A4%A')).status, 400); // broken URL escape
+    assert.equal((await app.call('POST', '/api/tasks', 'not an object')).status, 400);
+    assert.equal((await app.call('POST', '/api/tasks', [1, 2])).status, 400);
+    assert.equal((await app.call('POST', '/api/tasks', { title: 'x'.repeat(201) })).status, 400);
+    assert.equal((await app.call('POST', '/api/tasks', { title: 'ok\u0000\u0007 text' })).json.title, 'ok   text'); // each control character becomes a space
+    // nothing a screen sends can reach the stored rows by reference
+    const t = (await app.call('POST', '/api/tasks', { title: 'one' })).json;
+    t.title = 'changed in the caller';
+    assert.equal((await app.call('GET', '/api/tasks')).json.tasks.find((x) => x.id === t.id).title, 'one');
   } finally { app.close(); }
 });
 
@@ -341,29 +307,6 @@ test('setup can create starter habits, and the dashboard shows habits + journal'
     assert.equal(s.journalReminder, '21:30');
     assert.equal((await app.call('PUT', '/api/settings', { journalReminder: '9pm' })).status, 400);
   } finally { app.close(); }
-});
-
-test('a database created by the first version upgrades without losing data', async () => {
-  const { DatabaseSync } = await import('node:sqlite');
-  const { mkdtempSync } = await import('node:fs');
-  const { tmpdir } = await import('node:os');
-  const { join } = await import('node:path');
-  const file = join(mkdtempSync(join(tmpdir(), 'dayhub-')), 'old.db');
-  const old = new DatabaseSync(file);
-  old.exec(`CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-    CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, due_on TEXT, priority INTEGER NOT NULL DEFAULT 0, done INTEGER NOT NULL DEFAULT 0, done_on TEXT, created_at TEXT NOT NULL);
-    CREATE TABLE expenses (id INTEGER PRIMARY KEY AUTOINCREMENT, amount_minor INTEGER NOT NULL, category TEXT NOT NULL, note TEXT, spent_on TEXT NOT NULL, created_at TEXT NOT NULL);
-    CREATE TABLE music_links (id INTEGER PRIMARY KEY AUTOINCREMENT, provider TEXT NOT NULL, kind TEXT NOT NULL, url TEXT NOT NULL, embed_url TEXT NOT NULL UNIQUE, label TEXT NOT NULL, created_at TEXT NOT NULL);
-    INSERT INTO tasks(title, created_at) VALUES('Keep me', '2026-10-01T00:00:00Z');
-    INSERT INTO expenses(amount_minor, category, spent_on, created_at) VALUES(5000, 'Food', '2026-10-02', '2026-10-02T00:00:00Z');
-    PRAGMA user_version = 1;`);
-  old.close();
-  const store = createSqliteStore(file);
-  try {
-    assert.equal(store.listTasks()[0].title, 'Keep me');
-    assert.equal(store.listExpenses()[0].entryId, null);
-    assert.equal(store.createHabit({ title: 'x', icon: 'x', kind: 'check', unit: '', target: 1, step: 1, points: 1, days: [1], createdOn: TODAY }).id, 1);
-  } finally { store.close(); }
 });
 
 test('timeline: one day merged in time order (entries, habits, spending, tasks)', async () => {
