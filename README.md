@@ -4,6 +4,21 @@
 
 > **No server, no database, no account.** Day Hub is a static web page. Everything you enter stays in *your browser, on your device* and is never uploaded. A strict Content-Security-Policy (`connect-src 'none'`) means the browser itself blocks the page from sending data anywhere.
 
+**Live site:** <https://everything-bele-x.vercel.app>
+
+<p align="center">
+  <img src="docs/screenshots/home.jpg" alt="Day Hub home screen: needs-you-now, today's tasks, habits, journal quick note, spending and music tiles" width="720">
+</p>
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/screenshots/journal.jpg" alt="Journal day view with limits and goals and a timeline of habits, journal entries and spending" width="360"><br><sub>Journal: one day as a timeline</sub></td>
+    <td align="center"><img src="docs/screenshots/habits.jpg" alt="Habits screen with points, streaks, today's habits and 13 badges" width="360"><br><sub>Habits: points, streaks and badges</sub></td>
+  </tr>
+</table>
+
+<sub>Screenshots show sample data.</sub>
+
 - [Quick start](#quick-start)
 - [Features](#features)
 - [How Day Hub decides things](#how-day-hub-decides-things)
@@ -152,6 +167,7 @@ public/           index.html, styles.css, manifest, icon
 public/js/        the screens: plain ES modules, no build step
 public/js/core/   the engine: store.js (data), routes.js (actions), backend.js, router.js,
                   habits.js, commit.js, detect.js, insights.js, prompts.js, music.js, validate.js
+docs/screenshots/ images used by this README
 scripts/          export-old-data.js (one-time: data/dayhub.db -> backup file)
 test/             node:test suites
 ```
