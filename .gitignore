@@ -4,4 +4,3 @@ data/
 *.db-*
 dayhub-backup.json
 day-hub-*.json
-docs/
